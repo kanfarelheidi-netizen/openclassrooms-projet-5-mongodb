@@ -1,0 +1,17 @@
+.git
+.env
+.venv
+.build_docx
+.build_pptx
+.codex-finalizer
+secrets
+out
+exports
+backups
+data
+*.csv
+*.pptx
+*.docx
+*.pdf
+__pycache__
+*.pyc

@@ -1,0 +1,10 @@
+.env
+secrets/
+data/
+out/
+exports/
+backups/
+*.csv
+*.log
+__pycache__/
+*.pyc
