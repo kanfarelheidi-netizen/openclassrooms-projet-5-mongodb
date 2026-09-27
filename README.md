@@ -4,7 +4,7 @@
 
 Les sources scolaires et les consignes viennent du site de l'école OpenClassrooms, projet « Maintenez et documentez un système de stockage des données sécurisé et performant ».
 
-Les livrables demandés sont le lien GitHub des scripts de migration, ce README, le fichier docker-compose.yml et la présentation PowerPoint. Le dépôt contient uniquement ces éléments et leurs dépendances d'exécution. Les cours, les discours personnels, les archives de revue et les rapports internes n'en font pas partie. Le dataset, les mots de passe, les sauvegardes et les chemins personnels sont exclus.
+Les livrables demandés sont le lien GitHub des scripts de migration, ce README, le fichier docker-compose.yml et la présentation PowerPoint. Le dépôt inclut aussi les scripts utiles à la démonstration et aux contrôles du projet : CRUD, export, sauvegarde et tests. Les cours, les discours personnels, les archives de revue et les rapports internes n'en font pas partie. Le dataset, les mots de passe, les sauvegardes produites et les chemins personnels sont exclus.
 
 ## Quel script fait la migration
 
@@ -72,7 +72,7 @@ Le rapport est créé dans `out/P05_Controle_migration_reelle.json`. Il doit con
 6. Pour compter directement, ouvrir le conteneur mongo puis Exec et saisir la commande suivante. Elle lit le mot de passe monté sans l'afficher.
 
 ```sh
-mongosh --quiet --username p05_reader --password "$(cat /run/secrets/mongo_reader_password)" --authenticationDatabase p05_medical p05_medical --eval 'db.admissions.countDocuments({})'
+mongosh --quiet --username p05_reader --password "$(tr -d '\r\n' < /run/secrets/mongo_reader_password)" --authenticationDatabase p05_medical p05_medical --eval 'db.admissions.countDocuments({})'
 ```
 
 Résultat attendu : `55500`. Cette commande utilise le shell Linux du conteneur MongoDB. Ne pas la saisir dans le terminal de l'hôte. Pour afficher les noms des index, remplacer l'expression après `--eval` par `'db.admissions.getIndexes().map(i => i.name)'`.
@@ -85,9 +85,75 @@ Le volume nommé `mongo_data` conserve la base dans `/data/db`. Le montage du CS
 
 Les trois secrets sont des fichiers locaux montés sous `/run/secrets`. Le compte `p05_admin` administre le serveur, `p05_ingest` possède readWrite sur p05_medical et `p05_reader` possède read sur cette base. La lecture seule ne masque pas les données nominatives. L'initialisation JavaScript s'exécute uniquement sur un volume neuf. Les quatre index sont `_id_`, `ux_source_row`, `ix_admission_date` et `ix_condition_admission`.
 
-Les contrôles du 20 septembre 2026 ont démontré la migration et la relance sur MongoDB réel, les refus d'accès, l'export et la restauration applicative dans une base temporaire du même serveur. Ce sont des preuves locales historiques, pas un test de charge ni une certification. Le dépôt minimal ne distribue pas les outils internes de sauvegarde ni les rapports de travail.
+Les contrôles du 20 septembre 2026 ont démontré la migration et la relance sur MongoDB réel, les refus d'accès, l'export et la restauration applicative dans une base temporaire du même serveur. Ce sont des preuves locales historiques, pas un test de charge ni une certification. Les scripts permettant de reproduire ces contrôles sont décrits ci-dessous ; les rapports et sauvegardes générés restent locaux.
 
 Pour arrêter : utiliser Stop dans Docker Desktop. Ne pas supprimer le volume et ne pas employer `docker compose down -v`. Le volume n'est ni une sauvegarde hors poste, ni une solution de haute disponibilité. TLS, la rotation des secrets, les sauvegardes externes et un plan de reprise complet restent à concevoir avant une exploitation distante.
+
+## Scripts complémentaires et utilisation
+
+| Script | Fonction |
+| --- | --- |
+| P05_Profilage_source.py | Compte les lignes, colonnes, doublons et anomalies avant migration |
+| P05_Generer_secrets.py | Prépare trois mots de passe locaux sans afficher ni remplacer les existants |
+| P05_Demo_CRUD.py | Crée, lit, modifie puis supprime un document fictif dans demo_crud |
+| P05_Exporter.py | Exporte 55 500 admissions en CSV et compare les 15 champs avec la source |
+| P05_Backup.py | Chiffre une copie applicative BSON et permet sa restauration contrôlée |
+| P05_Valider_MongoDB_reel.py | Vérifie contenu, droits, index, CRUD, export et restauration isolée |
+| test_p05_migration.py | Huit tests automatisés, dont import et relance en mémoire |
+
+Ces outils utilisent les fichiers du dépôt et les données locales. Le script de lancement PowerShell historique reste local : les commandes suivantes fonctionnent depuis le terminal hôte de Docker Desktop, dans le dossier du dépôt.
+
+### Préparer les outils
+
+La migration initiale doit être terminée. MongoDB doit être healthy. Le CSV officiel doit être dans data/healthcare_dataset.csv, et les trois secrets dans secrets/. Construire une image complémentaire contenant Python et les dépendances de contrôle :
+
+```text
+docker build -f Dockerfile.tools -t p05-tools .
+```
+
+Les commandes montent le dossier courant dans /work. Les scripts y sont lus au lancement ; les fichiers produits restent sur le poste. Aucun mot de passe n'est intégré à l'image. Si source=. est refusé, le remplacer par le chemin du dossier local sans publier ce chemin.
+
+### Profilage et tests sans MongoDB
+
+```text
+docker run --rm --mount type=bind,source=.,target=/work p05-tools python P05_Profilage_source.py
+docker run --rm --mount type=bind,source=.,target=/work p05-tools python -m unittest -v test_p05_migration
+```
+
+Le premier produit P05_Profilage_source.json. Le second doit terminer avec huit tests réussis. Les tests en mémoire ne remplacent pas une vérification sur MongoDB réel.
+
+### Démonstration CRUD
+
+```text
+docker run --rm --network p05_internal --mount type=bind,source=.,target=/work -e P05_MONGO_HOST=mongo -e P05_MONGO_USER=p05_ingest -e P05_MONGO_PASSWORD_FILE=/work/secrets/mongo_ingest_password.txt p05-tools python P05_Demo_CRUD.py
+```
+
+Résultat attendu : create, read, update et delete à true. Seul un document fictif dans demo_crud est manipulé puis supprimé. Les admissions restent intactes.
+
+### Export CSV
+
+```text
+docker run --rm --network p05_internal --mount type=bind,source=.,target=/work -e P05_MONGO_HOST=mongo -e P05_MONGO_USER=p05_reader -e P05_MONGO_PASSWORD_FILE=/work/secrets/mongo_reader_password.txt p05-tools python P05_Exporter.py
+```
+
+Résultat attendu : 55 500 lignes exportées et comparées. Le fichier exports/healthcare_dataset_export.csv contient les données complètes : il reste local et exclu de GitHub. Le rapport P05_Controle_export.json indique content_check: passed. Un export CSV n'est pas une sauvegarde chiffrée.
+
+### Sauvegarde chiffrée
+
+```text
+docker run --rm --mount type=bind,source=.,target=/work p05-tools python P05_Backup.py --mode keygen
+docker run --rm --network p05_internal --mount type=bind,source=.,target=/work -e P05_MONGO_HOST=mongo -e P05_MONGO_USER=p05_reader -e P05_MONGO_PASSWORD_FILE=/work/secrets/mongo_reader_password.txt p05-tools python P05_Backup.py --mode backup
+```
+
+La clé locale secrets/backup_key.txt est conservée si elle existe déjà. Le fichier chiffré est créé dans backups/. Conserver une copie protégée de la clé séparément de l'archive. L'instantané contient les admissions, pas les comptes, index ou paramètres du serveur. La restauration directe avec --mode restore écrit dans la cible configurée ; pour la démonstration, utiliser le contrôle isolé suivant.
+
+### Validation réelle et restauration isolée
+
+```text
+docker run --rm --network p05_internal --mount type=bind,source=.,target=/work -e P05_MONGO_HOST=mongo p05-tools python P05_Valider_MongoDB_reel.py
+```
+
+Ce contrôle lit les trois secrets locaux. Il compare les admissions à la source, vérifie le refus d'écriture du lecteur et de lecture anonyme, teste le CRUD fictif et les index, produit un export et une sauvegarde chiffrée. Il restaure dans une base temporaire portant un nom unique sur le même serveur, teste le rejet d'une archive altérée puis supprime uniquement cette base temporaire. Il conserve l'export, la sauvegarde, la clé et le rapport local P05_Controle_validation_reelle.json. Le résultat attendu est status: passed, avec 55 500 documents vérifiés, exportés et restaurés. Cela ne prouve pas une reprise sur un autre serveur.
 
 ## Recherche AWS
 

@@ -1,0 +1,14 @@
+.env
+secrets/
+data/
+out/
+exports/
+backups/
+*.csv
+*.log
+__pycache__/
+*.pyc
+.venv/
+P05_Controle*.json
+P05_Profilage_source.json
+*.fernet

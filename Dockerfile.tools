@@ -1,0 +1,6 @@
+FROM python:3.12.14-slim-trixie
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /work
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements-dev.txt
+CMD ["python", "--version"]
