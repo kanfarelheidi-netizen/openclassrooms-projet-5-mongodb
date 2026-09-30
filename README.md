@@ -1,5 +1,65 @@
 # Projet 5 Migration CSV vers MongoDB
 
+## Lien GitHub et remise OpenClassrooms
+
+Depot des scripts : https://github.com/kanfarelheidi-netizen/openclassrooms-projet-5-mongodb
+
+Le depot est prive : le jury doit disposer d'un acces GitHub autorise avant la remise. Un lien seul ne donne pas acces a un depot prive.
+
+La remise OpenClassrooms contient uniquement `Lien_GitHub.txt`, `README.md`, `docker-compose.yml` et `P05_Presentation.pptx`. Les scripts et dependances necessaires a l'execution se recuperent dans ce depot GitHub, pas dans l'archive de remise. Le fichier Compose seul ne suffit pas : telecharger et extraire le depot complet avant de le lancer. Les outils complementaires du depot ne sont pas des documents supplementaires a remettre.
+
+## Premiere installation : mots de passe et comptes MongoDB
+
+Le script [P05_Generer_secrets.py](https://github.com/kanfarelheidi-netizen/openclassrooms-projet-5-mongodb/blob/main/P05_Generer_secrets.py) est fourni dans ce depot. Il genere les trois mots de passe sur le poste de la personne qui installe le projet. Aucun mot de passe reel ne doit etre ajoute a GitHub, au README ou a l'archive de remise.
+
+Dans Docker Desktop, ouvrir le terminal de l'hote (pas l'onglet Exec) et se placer dans le dossier extrait contenant `docker-compose.yml`. Avec le moteur Docker demarre, executer avant le premier demarrage de MongoDB :
+
+```text
+docker run --rm --mount type=bind,source=.,target=/work --workdir /work python:3.12.14-slim-trixie python P05_Generer_secrets.py
+```
+
+Le resultat indique `Local secret files ready: 3; newly created: 3` sur une installation neuve. Une relance indique zero nouveau fichier si les trois existent deja. Aucun secret n'est affiche et aucun fichier existant n'est remplace. Si `source=.` est refuse, remplacer uniquement le point par le chemin absolu du dossier extrait, entre guillemets si necessaire ; ce chemin reste local.
+
+| Compte | Fichier local genere | Base d'authentification | Role |
+| --- | --- | --- | --- |
+| `p05_admin` | `secrets/mongo_root_password.txt` | `admin` | Administration du serveur |
+| `p05_ingest` | `secrets/mongo_ingest_password.txt` | `p05_medical` | Lecture et ecriture pour la migration |
+| `p05_reader` | `secrets/mongo_reader_password.txt` | `p05_medical` | Lecture seule |
+
+Compose monte ces fichiers sous `/run/secrets/`, sans l'extension `.txt`. Sur un volume neuf, l'image MongoDB cree l'administrateur et `mongo-init/01-users.js` cree les comptes import et lecture. La generation des fichiers ne cree pas a elle seule les utilisateurs MongoDB.
+
+Pour une installation deja utilisee, conserver les secrets correspondant au volume existant. Ne pas supprimer le volume ou regenerer des secrets pour contourner une erreur d'authentification. Modifier un fichier secret ne change pas le mot de passe deja enregistre dans MongoDB.
+
+### Se connecter depuis Docker Desktop
+
+Apres le demarrage de `mongo` et l'import decrits plus bas, ouvrir **Containers > p05-medical > mongo-1 > Exec**. Saisir UNE des commandes suivantes dans cet onglet Linux, pas dans le terminal Windows du bas. Elles lisent le secret sans l'afficher ; `tr` retire les fins de ligne du fichier.
+
+Lecture seule (compte recommande pour la demonstration) :
+
+```sh
+mongosh --quiet --username p05_reader --password "$(tr -d '\r\n' < /run/secrets/mongo_reader_password)" --authenticationDatabase p05_medical p05_medical
+```
+
+Compte d'import :
+
+```sh
+mongosh --quiet --username p05_ingest --password "$(tr -d '\r\n' < /run/secrets/mongo_ingest_password)" --authenticationDatabase p05_medical p05_medical
+```
+
+Administration (uniquement si necessaire) :
+
+```sh
+mongosh --quiet --username p05_admin --password "$(tr -d '\r\n' < /run/secrets/mongo_root_password)" --authenticationDatabase admin p05_medical
+```
+
+Quand l'invite devient `p05_medical>`, verifier le volume importe :
+
+```javascript
+db.admissions.countDocuments({})
+```
+
+Resultat attendu apres migration : `55500`. Pour quitter MongoDB, saisir `exit`. L'invite `#` correspond au shell Linux : les commandes `db...` et `use p05_medical` ne s'y executent pas directement. Ne pas partager de capture contenant un secret ou des donnees nominatives.
+
 ## Mission et livrables
 
 Les sources scolaires et les consignes viennent du site de l'école OpenClassrooms, projet « Maintenez et documentez un système de stockage des données sécurisé et performant ».
